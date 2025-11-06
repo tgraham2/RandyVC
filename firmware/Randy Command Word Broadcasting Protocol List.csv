@@ -1,0 +1,154 @@
+" Semantic
+ tag",Command word,Function type,Broadcast statement,"Broadcast 
+mode",Sending protocol,Receiving protocol
+1,GREETING,Greeting message,Welcome,Passive,AA 55 01 00 FB,AA 55 01 00 FB
+2,HAVE-A-REST,Rest message,I’m going to take a break,Active,AA 55 02 00 FB,AA 55 02 00 FB
+3,HELLO-HI-WONDER,Wake word,I'm here,Active,AA 55 03 00 FB,AA 55 03 00 FB
+4,TURN-UP-VOLUME,Increase volume,Volume increase ,Active,AA 55 04 00 FB,AA 55 04 00 FB
+5,TURN-DOWN-VOLUME,Decrease volume,Volume decrease ,Active,AA 55 05 00 FB,AA 55 05 00 FB
+6,MAXIMUM-VOLUME,Maximum volume,Maximum volume,Active,AA 55 06 00 FB,AA 55 06 00 FB
+7,MEDIUM-VOLUME,Medium volume,Medium volume,Active,AA 55 07 00 FB,AA 55 07 00 FB
+8,MINIMUM-VOLUME,Minimum volume,Minimum volume,Active,AA 55 08 00 FB,AA 55 08 00 FB
+9,START-BROADCASTING,Start broadcasting,Start Broadcasting,Active,AA 55 09 00 FB,AA 55 09 00 FB
+10,STOP-BROADCASTING,Stop broadcasting,Stop broadcasting,Active,AA 55 0A 00 FB,AA 55 0A 00 FB
+,,,,,,
+,,,,,,
+11,GO-STRAIGHT,Command word,Going straight,Active,AA 55 00 01 FB,AA 55 00 01 FB
+12,GO-BACKWARD,Command word,Going backward,Active,AA 55 00 02 FB,AA 55 00 02 FB
+13,TURN-LEFT,Command word,Turning left,Active,AA 55 00 03 FB,AA 55 00 03 FB
+14,TURN-RIGHT,Command word,Turning right,Active,AA 55 00 04 FB,AA 55 00 04 FB
+15,LEAN-FORWARD,Command word,Lean forward,Active,AA 55 00 05 FB,AA 55 00 05 FB
+16,LEAN-BACK,Command word,Lean back,Active,AA 55 00 06 FB,AA 55 00 06 FB
+17,LEAN-LEFT,Command word,Lean left,Active,AA 55 00 07 FB,AA 55 00 07 FB
+18,LEAN-RIGHT,Command word,Lean right,Active,AA 55 00 08 FB,AA 55 00 08 FB
+19,STOP,Command word,Copy that ,Active,AA 55 00 09 FB,AA 55 00 09 FB
+20,ATTENTION,Command word,Copy that ,Active,AA 55 00 0A FB,AA 55 00 0A FB
+21,GET-DOWN,Command word,Copy that ,Active,AA 55 00 0B FB,AA 55 00 0B FB
+22,SIT-DOWN,Command word,Copy that,Active,AA 55 00 0C FB,AA 55 00 0C FB
+23,SPEED-UP,Command word,Copy that,Active,AA 55 00 0D FB,AA 55 00 0D FB
+24,SLOW-DOWN,Command word,Copy that,Active,AA 55 00 0E FB,AA 55 00 0E FB
+25,RAISE-THE-BODY,Command word,Copy that,Active,AA 55 00 0F FB,AA 55 00 0F FB
+26,LOWER-THE-BODY,Command word,Copy that,Active,AA 55 00 10 FB,AA 55 00 10 FB
+27,MAKE-A-SOUND,Command word,Copy that,Active,AA 55 00 11 FB,AA 55 00 11 FB
+28,TURN-ON-THE-LIGHT,Command word,Turn on the light,Active,AA 55 00 12 FB,AA 55 00 12 FB
+29,TURN-OFF-THE-LIGHT,Command word,Turn off the light,Active,AA 55 00 13 FB,AA 55 00 13 FB
+30,OPEN-THE-DOOR,Command word,The door is open,Active,AA 55 00 14 FB,AA 55 00 14 FB
+31,CLOSE-THE-DOOR,Command word,The door is closed ,Active,AA 55 00 15 FB,AA 55 00 15 FB
+32,TURN-ON-THE-WATER-PUMP,Command word,Turn on the water pump,Active,AA 55 00 16 FB,AA 55 00 16 FB
+33,TURN-OFF-THE-WATER-PUMP,Command word,Turn off the water pump,Active,AA 55 00 17 FB,AA 55 00 17 FB
+34,UNFOLD-THE-AIRING-RACK,Command word,Copy that,Active,AA 55 00 18 FB,AA 55 00 18 FB
+35,FOLD-THE-ARING-RACK,Command word,Copy that,Active,AA 55 00 19 FB,AA 55 00 19 FB
+36,HELLO,Command word,Hi,Active,AA 55 00 1A FB,AA 55 00 1A FB
+37,INTRODUCE-YOURSELF,Command word,"Hello, i'm Hiwonder, and i can talk and dance.",Active,AA 55 00 1B FB,AA 55 00 1B FB
+38,SHOW-A-SKIII,Command word,Watch closely,Active,AA 55 00 1C FB,AA 55 00 1C FB
+39,MARCH,Command word,Copy that,Active,AA 55 00 1D FB,AA 55 00 1D FB
+40,SHAKE-HEAD,Command word,Copy that,Active,AA 55 00 1E FB,AA 55 00 1E FB
+41,DIVE-FORWARD,Command word,Copy that,Active,AA 55 00 1F FB,AA 55 00 1F FB
+42,DIVE-BACKWARD,Command word,Copy that,Active,AA 55 00 20 FB,AA 55 00 20 FB
+43,COMBAT MODE,Command word,Copy that,Active,AA 55 00 21 FB,AA 55 00 21 FB
+44,SQUAT-DOWN,Command word,Copy that,Active,AA 55 00 22 FB,AA 55 00 22 FB
+45,SHAKE-IT-OFF,Command word,Copy that,Active,AA 55 00 23 FB,AA 55 00 23 FB
+46,TURN-ON-THE-FAN,Command word,Copy that,Active,AA 55 00 24 FB,AA 55 00 24 FB
+47,TURN-OFF-THE-FAN,Command word,Copy that,Active,AA 55 00 25 FB,AA 55 00 25 FB
+48,ROTATING-STEERING-GEAR,Command word,Copy that,Active,AA 55 00 26 FB,AA 55 00 26 FB
+49,GIVE-A-RED-LIGHT,Command word,Copy that,Active,AA 55 00 27 FB,AA 55 00 27 FB
+50,GIVE-A-GREEN-LIGHT,Command word,Copy that,Active,AA 55 00 28 FB,AA 55 00 28 FB
+51,GIVE-A-BLUE-LIGHT,Command word,Copy that,Active,AA 55 00 29 FB,AA 55 00 29 FB
+52,SHOW-SMILEY-FACE,Command word,Copy that,Active,AA 55 00 2A FB,AA 55 00 2A FB
+53,SHOW-CRYING-FACE,Command word,Copy that,Active,AA 55 00 2B FB,AA 55 00 2B FB
+,,,,,,
+54,START-FACE-RECOGNITION,Command word,Start face recognition,Active,AA 55 00 62 FB,AA 55 00 62 FB
+55,START-LABEL-RECOGNITION,Command word,Start label recognition,Active,AA 55 00 63 FB,AA 55 00 63 FB
+56,START-WASTE-SORTING,Command word,Start waste soriting,Active,AA 55 00 64 FB,AA 55 00 64 FB
+57,START-COLOR-RECOGNITION,Command word,Start color recognition,Active,AA 55 00 65 FB,AA 55 00 65 FB
+58,START-LINE-FOLLOWING,Command word,Start line following,Active,AA 55 00 66 FB,AA 55 00 66 FB
+59,START-COLOR-TRACKING,Command word,Start color tracking,Active,AA 55 00 67 FB,AA 55 00 67 FB
+60,START-OBSTACLE-AVOIDANCE,Command word,Start obstacle avoidance,Active,AA 55 00 68 FB,AA 55 00 68 FB
+61,SORT-RED,Command word,Copy that,Active,AA 55 00 69 FB,AA 55 00 69 FB
+62,SORT-GREEN,Command word,Copy that,Active,AA 55 00 6A FB,AA 55 00 6A FB
+63,SORT-BLUE,Command word,Copy that,Active,AA 55 00 6B FB,AA 55 00 6B FB
+64,DANCE,Command word,Copy that,Active,AA 55 00 6C FB,AA 55 00 6C FB
+65,PUSH-UP,Command word,Copy that,Active,AA 55 00 6D FB,AA 55 00 6D FB
+66,LEFT-FOOT-SHOOT,Command word,Copy that,Active,AA 55 00 6E FB,AA 55 00 6E FB
+67,RIGHT-FOOT-SHOOT,Command word,Copy that,Active,AA 55 00 6F FB,AA 55 00 6F FB
+68,TWIST,Command word,Copy that,Active,AA 55 00 71 FB,AA 55 00 71 FB
+69,SIT-UP,Command word,Copy that,Active,AA 55 00 72 FB,AA 55 00 72 FB
+70,BOW,Command word,Copy that,Active,AA 55 00 73 FB,AA 55 00 73 FB
+71,SPREAD-THE-HANDS,Command word,Copy that,Active,AA 55 00 74 FB,AA 55 00 74 FB
+72,WAVE-HAND,Command word,Copy that,Active,AA 55 00 75 FB,AA 55 00 75 FB
+73,MARCH-IN-PLACE,Command word,Copy that,Active,AA 55 00 76 FB,AA 55 00 76 FB
+74,FALL-AND-STAND-UP,Command word,Copy that,Active,AA 55 00 77 FB,AA 55 00 77 FB
+75,STRUT,Command word,Copy that,Active,AA 55 00 78 FB,AA 55 00 78 FB
+76,LEFT-HOOK,Command word,Copy that,Active,AA 55 00 79 FB,AA 55 00 79 FB
+77,RIGHT-HOOK,Command word,Copy that,Active,AA 55 00 7A FB,AA 55 00 7A FB
+78,DETECTED-CLOSE-PLAY,Command word,Copy that,Active,AA 55 00 7B FB,AA 55 00 7B FB
+79,SORT-YELLOW,Command word,Copy that,Active,AA 55 00 7C FB,AA 55 00 7C FB
+,,,,,,
+91,EXECUTE-ACTION-ONE,Command word,Copy that,Active,AA 55 00 80 FB,AA 55 00 80 FB
+92,EXECUTE-ACTION-TWO,Command word,Copy that,Active,AA 55 00 81 FB,AA 55 00 81 FB
+93,EXECUTE-ACTION-THREE,Command word,Copy that,Active,AA 55 00 82 FB,AA 55 00 82 FB
+94,EXECUTE-ACTION-FOUR,Command word,Copy that,Active,AA 55 00 83 FB,AA 55 00 83 FB
+95,EXECUTE-ACTION-FIVE,Command word,Copy that,Active,AA 55 00 84 FB,AA 55 00 84 FB
+96,EXECUTE-ACTION-SIX,Command word,Copy that,Active,AA 55 00 85 FB,AA 55 00 85 FB
+97,EXECUTE-ACTION-SEVEN,Command word,Copy that,Active,AA 55 00 86 FB,AA 55 00 86 FB
+98,EXECUTE-ACTION-EIGHT,Command word,Copy that,Active,AA 55 00 87 FB,AA 55 00 87 FB
+99,EXECUTE-ACTION-NINE,Command word,Copy that,Active,AA 55 00 88 FB,AA 55 00 88 FB
+100,EXECUTE-ACTION-TEN,Command word,Copy that,Active,AA 55 00 89 FB,AA 55 00 89 FB
+,,,,Active,,
+101,EXECUTE-ACTION-ELEVEN,Command word,Copy that,Active,AA 55 00 A1 FB,AA 55 00 A1 FB
+102,EXECUTE-ACTION-TWELVE,Command word,Copy that,Active,AA 55 00 A2 FB,AA 55 00 A2 FB
+103,EXECUTE-ACTION-THIRTEEN,Command word,Copy that,Active,AA 55 00 A3 FB,AA 55 00 A3 FB
+104,EXECUTE-ACTION-FOURTEEN,Command word,Copy that,Active,AA 55 00 A4 FB,AA 55 00 A4 FB
+105,EXECUTE-ACTION-FIFTEEN,Command word,Copy that,Active,AA 55 00 A5 FB,AA 55 00 A5 FB
+106,EXECUTE-ACTION-SIXTEEN,Command word,Copy that,Active,AA 55 00 A6 FB,AA 55 00 A6 FB
+107,EXECUTE-ACTION-SEVENTEEN,Command word,Copy that,Active,AA 55 00 A7 FB,AA 55 00 A7 FB
+108,EXECUTE-ACTION-EIGHTEEN,Command word,Copy that,Active,AA 55 00 A8 FB,AA 55 00 A8 FB
+109,EXECUTE-ACTION-NINETEEN,Command word,Copy that,Active,AA 55 00 A9 FB,AA 55 00 A9 FB
+110,EXECUTE-ACTION-TWENTY,Command word,Copy that,Active,AA 55 00 AA FB,AA 55 00 AA FB
+111,EXECUTE-ACTION-TWENTY-ONE,Command word,Copy that,Active,AA 55 00 AB FB,AA 55 00 AB FB
+112,EXECUTE-ACTION-TWENTY-TWO,Command word,Copy that,Active,AA 55 00 AC FB,AA 55 00 AC FB
+113,EXECUTE-ACTION-TWENTY-THREE,Command word,Copy that,Active,AA 55 00 AD FB,AA 55 00 AD FB
+114,EXECUTE-ACTION-TWENTY-FOUR,Command word,Copy that,Active,AA 55 00 AE FB,AA 55 00 AE FB
+115,EXECUTE-ACTION-TWENTY-FIVE,Command word,Copy that,Active,AA 55 00 AF FB,AA 55 00 AF FB
+116,EXECUTE-ACTION-TWENTY-SIX,Command word,Copy that,Active,AA 55 00 B0 FB,AA 55 00 B0 FB
+117,EXECUTE-ACTION-TWENTY-SEVEN,Command word,Copy that,Active,AA 55 00 B1 FB,AA 55 00 B1 FB
+118,EXECUTE-ACTION-TWENTY-EIGHT,Command word,Copy that,Active,AA 55 00 B2 FB,AA 55 00 B2 FB
+119,EXECUTE-ACTION-TWENTY-NINE,Command word,Copy that,Active,AA 55 00 B3 FB,AA 55 00 B3 FB
+120,EXECUTE-ACTION-THIRTY,Command word,Copy that,Active,AA 55 00 B4 FB,AA 55 00 B4 FB
+,,,,,,
+,,,,,,
+,,,,,,
+150,RECYCLABLE-WASTE,Broadcast word,Recyclable waste,Passive,AA 55 FF 01 FB,AA 55 FF 01 FB
+151,KITCHEN-WASTE,Broadcast word,Kitchen waster,Passive,AA 55 FF 02 FB,AA 55 FF 02 FB
+152,HAZARDOUS-WASTE,Broadcast word,Hazardous Waste,Passive,AA 55 FF 03 FB,AA 55 FF 03 FB
+153,OTHER-WASTE,Broadcast word,Other waster,Passive,AA 55 FF 04 FB,AA 55 FF 04 FB
+154,ABSTACLE-AHEAD,Broadcast word,Abstacle ahead,Passive,AA 55 FF 05 FB,AA 55 FF 05 FB
+155,PARKING,Broadcast word,Parking completed,Passive,AA 55 FF 06 FB,AA 55 FF 06 FB
+156,RESTART-DEPARTURE,Broadcast word,Restart departure,Passive,AA 55 FF 07 FB,AA 55 FF 07 FB
+157,DETECT-LEFT-TURN,Broadcast word,Left turn detected,Passive,AA 55 FF 08 FB,AA 55 FF 08 FB
+158,DETECT-RIGHT-TURN,Broadcast word,Right turn detected,Passive,AA 55 FF 09 FB,AA 55 FF 09 FB
+159,DETECT-PARKING,Broadcast word,Parking detected,Passive,AA 55 FF 0A FB,AA 55 FF 0A FB
+160,DETECT-RED-LIGHT,Broadcast word,Red light detected,Passive,AA 55 FF 0B FB,AA 55 FF 0B FB
+161,DETECT-GREEN-LIGHT,Broadcast word,Green light detected,Passive,AA 55 FF 0C FB,AA 55 FF 0C FB
+162,DETECT-U-TURN,Broadcast word,U-turn detected,Passive,AA 55 FF 0D FB,AA 55 FF 0D FB
+163,DETECT-TURN,Broadcast word,Turn detected,Passive,AA 55 FF 0E FB,AA 55 FF 0E FB
+164,WELCOME-YOU,Broadcast word,Hello welcome,Passive,AA 55 FF 0F FB,AA 55 FF 0F FB
+165,DETECT-OBJECT-AHEAD-GRABBING,Broadcast word,"Object detected ahead, grabbing",Passive,AA 55 FF 10 FB,AA 55 FF 10 FB
+166,DETECT-OBJECT-AHEAD-OUT-OF-REACH-CANNOT-GRAB,Broadcast word,"Object detected ahead, out of reach, cannot grab",Passive,AA 55 FF 11 FB,AA 55 FF 11 FB
+167,GRABBING-END,Broadcast word,Grabbing ended,Passive,AA 55 FF 12 FB,AA 55 FF 12 FB
+,,,,,,
+181,DETECTED-ZERO,Broadcast word,Detected zero,Passive,AA 55 FF 20 FB,AA 55 FF 20 FB
+182,DETECTED-ONE,Broadcast word,Detected one,Passive,AA 55 FF 21 FB,AA 55 FF 21 FB
+183,DETECTED-TWO,Broadcast word,Detected two,Passive,AA 55 FF 22 FB,AA 55 FF 22 FB
+184,DETECTED-THREE,Broadcast word,Detected three,Passive,AA 55 FF 23 FB,AA 55 FF 23 FB
+185,DETECTED-FOUR,Broadcast word,Detected four,Passive,AA 55 FF 24 FB,AA 55 FF 24 FB
+186,DETECTED-FIVE,Broadcast word,Detected five,Passive,AA 55 FF 25 FB,AA 55 FF 25 FB
+187,DETECTED-SIX,Broadcast word,Detected six,Passive,AA 55 FF 26 FB,AA 55 FF 26 FB
+188,DETECTED-SEVEN,Broadcast word,Detected seven,Passive,AA 55 FF 27 FB,AA 55 FF 27 FB
+189,DETECTED-EIGHT,Broadcast word,Detected eight,Passive,AA 55 FF 28 FB,AA 55 FF 28 FB
+190,DETECTED-NINE,Broadcast word,Detected nine,Passive,AA 55 FF 29 FB,AA 55 FF 29 FB
+191,DETECTED-RED,Broadcast word,Detected red,Passive,AA 55 FF 2A FB,AA 55 FF 2A FB
+192,DETECTED-GREEN,Broadcast word,Detected green,Passive,AA 55 FF 2B FB,AA 55 FF 2B FB
+193,DETECTED-BLUE,Broadcast word,Detected blue,Passive,AA 55 FF 2C FB,AA 55 FF 2C FB
+194,DETECTED-YELLOW,Broadcast word,Detected yellow,Passive,AA 55 FF 2D FB,AA 55 FF 2D FB
+195,DETECTED-PURPLE,Broadcast word,Detected purple,Passive,AA 55 FF 2E FB,AA 55 FF 2E FB
