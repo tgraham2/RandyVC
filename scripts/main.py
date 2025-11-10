@@ -3,12 +3,13 @@ import os
 import rospy
 import math
 import serial
+import threading
 from puppy_control.msg import Velocity, Pose, Gait
 from puppy_control.srv import SetRunActionName
 
 BANNER = """
 **********************************************************
-Function: voice interaction routine (+ ActionGroups)
+Function: voice interaction routine (+ ActionGroups + NAV)
 ----------------------------------------------------------
 Press Ctrl+C to exit.
 ----------------------------------------------------------
@@ -31,7 +32,7 @@ FRAME_TO_ACTION = {
     "AA 55 00 88 FB": "kick_ball_left.d6ac",
     "AA 55 00 89 FB": "kick_ball_right.d6ac",
     "AA 55 00 A1 FB": "lie_down.d6ac",
-    "AA 55 00 A2 FB": "look_down.d6ac",     # prefer the .d6ac variant
+    "AA 55 00 A2 FB": "look_down.d6ac",
     "AA 55 00 A3 FB": "moonwalk.d6ac",
     "AA 55 00 A4 FB": "nod.d6ac",
     "AA 55 00 A5 FB": "pee.d6ac",
@@ -41,7 +42,7 @@ FRAME_TO_ACTION = {
     "AA 55 00 A9 FB": "shake_head.d6ac",
     "AA 55 00 AA FB": "sit.d6ac",
     "AA 55 00 AB FB": "spacewalk.d6ac",
-    "AA 55 00 AC FB": "stand.d6ac",         # prefer the .d6ac variant
+    "AA 55 00 AC FB": "stand.d6ac",
     "AA 55 00 AD FB": "stretch.d6ac",
     "AA 55 00 AE FB": "up_stairs_2cm.d6ac",
     "AA 55 00 AF FB": "up_stairs_3.5cm.d6ac",
@@ -52,13 +53,29 @@ FRAME_TO_ACTION = {
     "AA 55 00 B4 FB": "arm_test.d6a",
 }
 
-STOP_CODE      = "AA 55 00 09 FB"
-ATTENTION_CODE = "AA 55 00 0A FB"
-LIEDOWN_CODE  = "AA 55 00 0B FB"
-LOOKUP_CODE   = "AA 55 00 8D FB"
-MARCH_CODE    = "AA 55 00 76 FB"
+# --- Extra fixed codes ---
+STOP_CODE       = "AA 55 00 09 FB"
+ATTENTION_CODE  = "AA 55 00 0A FB"
+LIEDOWN_CODE    = "AA 55 00 0B FB"
+LOOKUP_CODE     = "AA 55 00 8D FB"
+MARCH_CODE      = "AA 55 00 76 FB"
+
+# --- NEW: Motion map (fill in your frames) ---
+# Units: x,y in m/s; yaw_rate in rad/s; duration in seconds.
+MOTION_MAP = {
+    "AA 55 00 F1 FB": {"x":  0.12, "y": 0.0,  "yaw_rate": 0.0,  "duration": 2.0},  # FORWARD
+    "AA 55 00 F2 FB": {"x": -0.10, "y": 0.0,  "yaw_rate": 0.0,  "duration": 2.0},  # BACKWARD
+    "AA 55 00 F3 FB": {"x":  0.00, "y": 0.0,  "yaw_rate": 0.6,  "duration": 1.5},  # TURN LEFT (CCW)
+    "AA 55 00 F4 FB": {"x":  0.00, "y": 0.0,  "yaw_rate":-0.6,  "duration": 1.5},  # TURN RIGHT (CW)
+    # Optional strafing if your gait supports it:
+    # "AA 55 00 F5 FB": {"x": 0.0, "y": 0.10, "yaw_rate": 0.0, "duration": 2.0},   # LEFT STRAFE
+    # "AA 55 00 F6 FB": {"x": 0.0, "y":-0.10, "yaw_rate": 0.0, "duration": 2.0},   # RIGHT STRAFE
+}
 
 run_st = True
+_motion_lock = threading.Lock()
+_motion_timer = None
+
 def on_shutdown():
     global run_st
     run_st = False
@@ -70,56 +87,102 @@ def hex5(b):
 def read_fixed_frame(ser):
     """Read exactly one 5-byte token; return hex string or None on timeout/mismatch."""
     pkt = ser.read(5)
-    if len(pkt) != 5: 
+    if len(pkt) != 5:
         return None
     if pkt[0] != 0xAA or pkt[1] != 0x55 or pkt[-1] != 0xFB:
         return None
     return hex5(pkt)
 
 def run_action_group(callable_srv, filename_with_ext):
-    """Call service with filename. Some images take (name) only; others (name, wait)."""
     try:
-        # Most builds: single-string argument
         callable_srv(filename_with_ext)
     except TypeError:
-        # Fallback if the service expects (name, wait)
         callable_srv(filename_with_ext, False)
 
-def parse_and_dispatch(hex_data, pose_pub, vel_pub, run_ag_srv):
+def stop_motion(vel_pub):
+    """Force a stop (thread-safe)."""
+    global _motion_timer
+    with _motion_lock:
+        if _motion_timer is not None:
+            _motion_timer.shutdown()
+            _motion_timer = None
+        vel_pub.publish(x=0.0, y=0.0, yaw_rate=0.0)
+
+def run_motion(pose_pub, gait_pub, vel_pub, m):
+    """
+    Apply base pose/gait, start motion, auto-stop after duration.
+    Any new motion cancels the previous one.
+    """
+    global _motion_timer
+    with _motion_lock:
+        # Cancel any running timer/motion
+        if _motion_timer is not None:
+            _motion_timer.shutdown()
+            _motion_timer = None
+
+        # Set a neutral but walk-ready pose & gait
+        pose = dict(PUPPY_POSE0)
+        pose_pub.publish(**pose, run_time=400)
+        gait_pub.publish(**GAIT0)
+        rospy.sleep(0.1)
+
+        # Start motion
+        vel_pub.publish(x=m["x"], y=m["y"], yaw_rate=m["yaw_rate"])
+
+        # Arm a timer to stop
+        def _auto_stop(_event):
+            stop_motion(vel_pub)
+
+        _motion_timer = rospy.Timer(rospy.Duration.from_sec(m["duration"]), _auto_stop, oneshot=True)
+
+def parse_and_dispatch(hex_data, pose_pub, vel_pub, gait_pub, run_ag_srv):
     # 1) Action groups
     if hex_data in FRAME_TO_ACTION:
+        # Cancel any motion before running an action group
+        stop_motion(vel_pub)
         run_action_group(run_ag_srv, FRAME_TO_ACTION[hex_data])
         rospy.loginfo("ActionGroup -> %s", FRAME_TO_ACTION[hex_data])
         return
 
-    # 2) Simple legacy motions kept for convenience
+    # 2) New motion commands
+    if hex_data in MOTION_MAP:
+        run_motion(pose_pub, gait_pub, vel_pub, MOTION_MAP[hex_data])
+        rospy.loginfo("Motion -> %s", MOTION_MAP[hex_data])
+        return
+
+    # 3) Legacy/demo motions & pose tweaks
     if hex_data == MARCH_CODE:
+        stop_motion(vel_pub)
         pose = dict(PUPPY_POSE0)
         pose_pub.publish(**pose, run_time=500)
-        rospy.sleep(0.5)
+        rospy.sleep(0.2)
         vel_pub.publish(x=0.1, y=0.0, yaw_rate=0.0)
         rospy.sleep(2)
         vel_pub.publish(x=0.0, y=0.0, yaw_rate=0.0)
 
     elif hex_data == ATTENTION_CODE:
+        stop_motion(vel_pub)
         pose = dict(PUPPY_POSE0)
         pose_pub.publish(**pose, run_time=500)
 
     elif hex_data == LIEDOWN_CODE:
+        stop_motion(vel_pub)
         pose = dict(PUPPY_POSE0); pose['height'] = -6
         pose_pub.publish(**pose, run_time=500)
 
     elif hex_data == LOOKUP_CODE:
+        stop_motion(vel_pub)
         pose = dict(PUPPY_POSE0); pose['pitch'] = math.radians(20)
         pose_pub.publish(**pose, run_time=500)
 
     elif hex_data == STOP_CODE:
-        vel_pub.publish(x=0.0, y=0.0, yaw_rate=0.0)
+        stop_motion(vel_pub)
+        rospy.loginfo("STOP")
         global run_st; run_st = False
 
 if __name__ == "__main__":
     print(BANNER)
-    rospy.init_node('voice_interaction_demo_ag')
+    rospy.init_node('voice_interaction_demo_ag_nav')
     rospy.on_shutdown(on_shutdown)
 
     PuppyPosePub = rospy.Publisher('/puppy_control/pose', Pose, queue_size=1)
@@ -145,6 +208,6 @@ if __name__ == "__main__":
         code = read_fixed_frame(ser)
         if code:
             rospy.loginfo("RX %s", code)
-            parse_and_dispatch(code, PuppyPosePub, PuppyVelocityPub, RunAG)
+            parse_and_dispatch(code, PuppyPosePub, PuppyVelocityPub, PuppyGaitConfigPub, RunAG)
         else:
             rospy.sleep(0.02)
