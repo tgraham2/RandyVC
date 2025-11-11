@@ -55,34 +55,39 @@ FRAME_TO_ACTION = {
 
 # --- Extra fixed codes ---
 STOP_CODE       = "AA 55 00 09 FB"
-ATTENTION_CODE  = "AA 55 00 0A FB"
+ATTENTION_CODE  = "AA 55 00 0A FB"   # repurposed as QUIT
 LIEDOWN_CODE    = "AA 55 00 0B FB"
 LOOKUP_CODE     = "AA 55 00 8D FB"
 MARCH_CODE      = "AA 55 00 76 FB"
 
-# --- NEW: Motion map (fill in your frames) ---
-# Units: x,y in m/s; yaw_rate in rad/s; duration in seconds.
+# --- NEW: Motion map (F1–F4 timed motions) ---
 MOTION_MAP = {
     "AA 55 00 F1 FB": {"x":  0.12, "y": 0.0,  "yaw_rate": 0.0,  "duration": 2.0},  # FORWARD
     "AA 55 00 F2 FB": {"x": -0.10, "y": 0.0,  "yaw_rate": 0.0,  "duration": 2.0},  # BACKWARD
     "AA 55 00 F3 FB": {"x":  0.00, "y": 0.0,  "yaw_rate": 0.6,  "duration": 1.5},  # TURN LEFT (CCW)
     "AA 55 00 F4 FB": {"x":  0.00, "y": 0.0,  "yaw_rate":-0.6,  "duration": 1.5},  # TURN RIGHT (CW)
-    # Optional strafing if your gait supports it:
-    # "AA 55 00 F5 FB": {"x": 0.0, "y": 0.10, "yaw_rate": 0.0, "duration": 2.0},   # LEFT STRAFE
-    # "AA 55 00 F6 FB": {"x": 0.0, "y":-0.10, "yaw_rate": 0.0, "duration": 2.0},   # RIGHT STRAFE
 }
+
+# --- FSM states for voice performance (11–19) ---
+IDLE, FWD, BACK, TL, TR, LFWD, LBACK, LLEFT, LRIGHT = range(9)
+_state = IDLE
+_last_pose_tag = None
 
 run_st = True
 _motion_lock = threading.Lock()
 _motion_timer = None
+_drive_timer = None
+
 
 def on_shutdown():
     global run_st
     run_st = False
     rospy.loginfo("Shutting down...")
 
+
 def hex5(b):
     return ' '.join(f'{x:02X}' for x in b)
+
 
 def read_fixed_frame(ser):
     """Read exactly one 5-byte token; return hex string or None on timeout/mismatch."""
@@ -93,11 +98,13 @@ def read_fixed_frame(ser):
         return None
     return hex5(pkt)
 
+
 def run_action_group(callable_srv, filename_with_ext):
     try:
         callable_srv(filename_with_ext)
     except TypeError:
         callable_srv(filename_with_ext, False)
+
 
 def stop_motion(vel_pub):
     """Force a stop (thread-safe)."""
@@ -108,49 +115,114 @@ def stop_motion(vel_pub):
             _motion_timer = None
         vel_pub.publish(x=0.0, y=0.0, yaw_rate=0.0)
 
+
+def _apply_pose(pose_pub, pose_dict, run_time_ms=300):
+    pose_pub.publish(
+        stance_x=pose_dict['stance_x'], stance_y=pose_dict['stance_y'],
+        x_shift=pose_dict['x_shift'], height=pose_dict['height'],
+        roll=pose_dict['roll'], pitch=pose_dict['pitch'], yaw=pose_dict['yaw'],
+        run_time=run_time_ms
+    )
+
+
 def run_motion(pose_pub, gait_pub, vel_pub, m):
-    """
-    Apply base pose/gait, start motion, auto-stop after duration.
-    Any new motion cancels the previous one.
-    """
+    """Timed motions from F1–F4"""
     global _motion_timer
     with _motion_lock:
-        # Cancel any running timer/motion
         if _motion_timer is not None:
             _motion_timer.shutdown()
             _motion_timer = None
-
-        # Set a neutral but walk-ready pose & gait
         pose = dict(PUPPY_POSE0)
         pose_pub.publish(**pose, run_time=400)
         gait_pub.publish(**GAIT0)
         rospy.sleep(0.1)
-
-        # Start motion
         vel_pub.publish(x=m["x"], y=m["y"], yaw_rate=m["yaw_rate"])
 
-        # Arm a timer to stop
         def _auto_stop(_event):
             stop_motion(vel_pub)
 
         _motion_timer = rospy.Timer(rospy.Duration.from_sec(m["duration"]), _auto_stop, oneshot=True)
 
+
+def _drive_cb(_event, pose_pub, vel_pub):
+    """Continuous drive loop for FSM-based motion (11–19)."""
+    global _state, _last_pose_tag
+    if _state == IDLE:
+        vel_pub.publish(x=0.0, y=0.0, yaw_rate=0.0)
+        _last_pose_tag = None
+        return
+    if _state == FWD:
+        vel_pub.publish(x=0.12, y=0.0, yaw_rate=0.0)
+        return
+    if _state == BACK:
+        vel_pub.publish(x=-0.12, y=0.0, yaw_rate=0.0)
+        return
+    if _state == TL:
+        vel_pub.publish(x=0.0, y=0.0, yaw_rate=+0.6)
+        return
+    if _state == TR:
+        vel_pub.publish(x=0.0, y=0.0, yaw_rate=-0.6)
+        return
+
+    # Lean poses
+    pose = dict(PUPPY_POSE0)
+    tag = None
+    if _state == LFWD:
+        pose['pitch'] = math.radians(+15); tag = "LFWD"
+    elif _state == LBACK:
+        pose['pitch'] = math.radians(-15); tag = "LBACK"
+    elif _state == LLEFT:
+        pose['roll']  = math.radians(+15); tag = "LLEFT"
+    elif _state == LRIGHT:
+        pose['roll']  = math.radians(-15); tag = "LRIGHT"
+    if tag and _last_pose_tag != tag:
+        _apply_pose(pose_pub, pose, run_time_ms=300)
+        _last_pose_tag = tag
+    vel_pub.publish(x=0.0, y=0.0, yaw_rate=0.0)
+
+
 def parse_and_dispatch(hex_data, pose_pub, vel_pub, gait_pub, run_ag_srv):
+    """Interpret 5-byte frame and dispatch action."""
+    global _state, _last_pose_tag, run_st
+
     # 1) Action groups
     if hex_data in FRAME_TO_ACTION:
-        # Cancel any motion before running an action group
         stop_motion(vel_pub)
         run_action_group(run_ag_srv, FRAME_TO_ACTION[hex_data])
         rospy.loginfo("ActionGroup -> %s", FRAME_TO_ACTION[hex_data])
         return
 
-    # 2) New motion commands
+    # 2) Timed motions (F1–F4)
     if hex_data in MOTION_MAP:
         run_motion(pose_pub, gait_pub, vel_pub, MOTION_MAP[hex_data])
         rospy.loginfo("Motion -> %s", MOTION_MAP[hex_data])
         return
 
-    # 3) Legacy/demo motions & pose tweaks
+    # 3) Continuous FSM-based voice modes (11–19)
+    if   hex_data == "AA 55 00 01 FB": _state = FWD
+    elif hex_data == "AA 55 00 02 FB": _state = BACK
+    elif hex_data == "AA 55 00 03 FB": _state = TL
+    elif hex_data == "AA 55 00 04 FB": _state = TR
+    elif hex_data == "AA 55 00 05 FB": _state = LFWD; _last_pose_tag = None
+    elif hex_data == "AA 55 00 06 FB": _state = LBACK; _last_pose_tag = None
+    elif hex_data == "AA 55 00 07 FB": _state = LLEFT; _last_pose_tag = None
+    elif hex_data == "AA 55 00 08 FB": _state = LRIGHT; _last_pose_tag = None
+    elif hex_data == "AA 55 00 09 FB":
+        _state = IDLE
+        stop_motion(vel_pub)
+        _apply_pose(pose_pub, dict(PUPPY_POSE0), run_time_ms=300)
+        rospy.loginfo("STOP -> IDLE")
+        return
+    elif hex_data == "AA 55 00 0A FB":
+        _state = IDLE
+        stop_motion(vel_pub)
+        _apply_pose(pose_pub, dict(PUPPY_POSE0), run_time_ms=300)
+        rospy.loginfo("QUIT received")
+        run_st = False
+        rospy.signal_shutdown("QUIT command")
+        return
+
+    # 4) Legacy/demo motions
     if hex_data == MARCH_CODE:
         stop_motion(vel_pub)
         pose = dict(PUPPY_POSE0)
@@ -159,11 +231,6 @@ def parse_and_dispatch(hex_data, pose_pub, vel_pub, gait_pub, run_ag_srv):
         vel_pub.publish(x=0.1, y=0.0, yaw_rate=0.0)
         rospy.sleep(2)
         vel_pub.publish(x=0.0, y=0.0, yaw_rate=0.0)
-
-    elif hex_data == ATTENTION_CODE:
-        stop_motion(vel_pub)
-        pose = dict(PUPPY_POSE0)
-        pose_pub.publish(**pose, run_time=500)
 
     elif hex_data == LIEDOWN_CODE:
         stop_motion(vel_pub)
@@ -175,10 +242,6 @@ def parse_and_dispatch(hex_data, pose_pub, vel_pub, gait_pub, run_ag_srv):
         pose = dict(PUPPY_POSE0); pose['pitch'] = math.radians(20)
         pose_pub.publish(**pose, run_time=500)
 
-    elif hex_data == STOP_CODE:
-        stop_motion(vel_pub)
-        rospy.loginfo("STOP")
-        global run_st; run_st = False
 
 if __name__ == "__main__":
     print(BANNER)
@@ -190,19 +253,23 @@ if __name__ == "__main__":
     PuppyVelocityPub = rospy.Publisher('/puppy_control/velocity', Velocity, queue_size=1)
     rospy.sleep(0.5)
 
-    # Base posture & gait
     PuppyPosePub.publish(**PUPPY_POSE0, run_time=500)
     rospy.sleep(0.2)
     PuppyGaitConfigPub.publish(**GAIT0)
 
-    # ActionGroup service
     rospy.wait_for_service('/puppy_control/runActionGroup', timeout=5)
     RunAG = rospy.ServiceProxy('/puppy_control/runActionGroup', SetRunActionName)
 
-    # Serial device
-    dev = os.getenv("WONDERECHO_USB", "/dev/ttyUSB0")
+    dev = "/dev/ttyUSB1"
     ser = serial.Serial(dev, 115200, timeout=0.2)
     rospy.loginfo("Using USB: %s", dev)
+
+    # continuous FSM driver
+    _drive_timer = rospy.Timer(
+        rospy.Duration(0.02),
+        lambda evt: _drive_cb(evt, PuppyPosePub, PuppyVelocityPub),
+        oneshot=False
+    )
 
     while run_st and not rospy.is_shutdown():
         code = read_fixed_frame(ser)
