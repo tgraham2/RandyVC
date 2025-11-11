@@ -15,11 +15,15 @@ Press Ctrl+C to exit.
 ----------------------------------------------------------
 """
 
-# Initial posture & gait
-PUPPY_POSE0 = {'roll': 0.0, 'pitch': 0.0, 'yaw': 0.0, 'height': -10, 'x_shift': -0.5, 'stance_x': 0, 'stance_y': 0}
-GAIT0 = {'overlap_time': 0.2, 'swing_time': 0.2, 'clearance_time': 0.0, 'z_clearance': 3}
+# --- Base pose and gait defaults ---
+PUPPY_POSE0 = {
+    'roll': 0.0, 'pitch': 0.0, 'yaw': 0.0,
+    'height': -10, 'x_shift': -0.8,   # adjusted for arm mounted
+    'stance_x': 0, 'stance_y': 0
+}
+GAIT0 = {'overlap_time': 0.2, 'swing_time': 0.3, 'clearance_time': 0.0, 'z_clearance': 8}
 
-# --- Frame -> action group filename (include extension exactly as on disk) ---
+# --- Frame -> ActionGroup mapping ---
 FRAME_TO_ACTION = {
     "AA 55 00 80 FB": "1.d6a",
     "AA 55 00 81 FB": "2_legs_stand.d6ac",
@@ -53,22 +57,22 @@ FRAME_TO_ACTION = {
     "AA 55 00 B4 FB": "arm_test.d6a",
 }
 
-# --- Extra fixed codes ---
+# --- Fixed codes ---
 STOP_CODE       = "AA 55 00 09 FB"
 ATTENTION_CODE  = "AA 55 00 0A FB"   # repurposed as QUIT
 LIEDOWN_CODE    = "AA 55 00 0B FB"
 LOOKUP_CODE     = "AA 55 00 8D FB"
 MARCH_CODE      = "AA 55 00 76 FB"
 
-# --- NEW: Motion map (F1–F4 timed motions) ---
+# --- Motion map (F1–F4 timed) ---
 MOTION_MAP = {
-    "AA 55 00 F1 FB": {"x":  0.12, "y": 0.0,  "yaw_rate": 0.0,  "duration": 2.0},  # FORWARD
-    "AA 55 00 F2 FB": {"x": -0.10, "y": 0.0,  "yaw_rate": 0.0,  "duration": 2.0},  # BACKWARD
-    "AA 55 00 F3 FB": {"x":  0.00, "y": 0.0,  "yaw_rate": 0.6,  "duration": 1.5},  # TURN LEFT (CCW)
-    "AA 55 00 F4 FB": {"x":  0.00, "y": 0.0,  "yaw_rate":-0.6,  "duration": 1.5},  # TURN RIGHT (CW)
+    "AA 55 00 F1 FB": {"x":  5.0, "y": 0.0, "yaw_rate": 0.0,  "duration": 2.0},  # forward
+    "AA 55 00 F2 FB": {"x": -5.0, "y": 0.0, "yaw_rate": 0.0,  "duration": 2.0},  # backward
+    "AA 55 00 F3 FB": {"x":  0.0, "y": 0.0, "yaw_rate": 0.6,  "duration": 1.5},  # turn left
+    "AA 55 00 F4 FB": {"x":  0.0, "y": 0.0, "yaw_rate":-0.6,  "duration": 1.5},  # turn right
 }
 
-# --- FSM states for voice performance (11–19) ---
+# --- FSM states for latched motion commands ---
 IDLE, FWD, BACK, TL, TR, LFWD, LBACK, LLEFT, LRIGHT = range(9)
 _state = IDLE
 _last_pose_tag = None
@@ -77,6 +81,11 @@ run_st = True
 _motion_lock = threading.Lock()
 _motion_timer = None
 _drive_timer = None
+
+# --- Gait selection frames ---
+FRAME_GAIT_TROT  = "AA 55 00 20 FB"
+FRAME_GAIT_AMBLE = "AA 55 00 21 FB"
+FRAME_GAIT_WALK  = "AA 55 00 22 FB"
 
 
 def on_shutdown():
@@ -90,7 +99,6 @@ def hex5(b):
 
 
 def read_fixed_frame(ser):
-    """Read exactly one 5-byte token; return hex string or None on timeout/mismatch."""
     pkt = ser.read(5)
     if len(pkt) != 5:
         return None
@@ -107,7 +115,6 @@ def run_action_group(callable_srv, filename_with_ext):
 
 
 def stop_motion(vel_pub):
-    """Force a stop (thread-safe)."""
     global _motion_timer
     with _motion_lock:
         if _motion_timer is not None:
@@ -126,7 +133,6 @@ def _apply_pose(pose_pub, pose_dict, run_time_ms=300):
 
 
 def run_motion(pose_pub, gait_pub, vel_pub, m):
-    """Timed motions from F1–F4"""
     global _motion_timer
     with _motion_lock:
         if _motion_timer is not None:
@@ -144,27 +150,32 @@ def run_motion(pose_pub, gait_pub, vel_pub, m):
         _motion_timer = rospy.Timer(rospy.Duration.from_sec(m["duration"]), _auto_stop, oneshot=True)
 
 
-def _drive_cb(_event, pose_pub, vel_pub):
-    """Continuous drive loop for FSM-based motion (11–19)."""
+def _drive_cb(_event, pose_pub, vel_pub, gait_pub):
     global _state, _last_pose_tag
     if _state == IDLE:
         vel_pub.publish(x=0.0, y=0.0, yaw_rate=0.0)
         _last_pose_tag = None
         return
+
+    # Ensure gait/pose are active for continuous motion
+    gait_pub.publish(**GAIT0)
+    pose_pub.publish(**PUPPY_POSE0, run_time=300)
+
+    # Velocity-based states (cm/s)
     if _state == FWD:
-        vel_pub.publish(x=0.12, y=0.0, yaw_rate=0.0)
+        vel_pub.publish(x=5.0, y=0.0, yaw_rate=0.0)
         return
     if _state == BACK:
-        vel_pub.publish(x=-0.12, y=0.0, yaw_rate=0.0)
+        vel_pub.publish(x=-5.0, y=0.0, yaw_rate=0.0)
         return
     if _state == TL:
-        vel_pub.publish(x=0.0, y=0.0, yaw_rate=+0.6)
+        vel_pub.publish(x=0.0, y=0.0, yaw_rate=0.6)
         return
     if _state == TR:
         vel_pub.publish(x=0.0, y=0.0, yaw_rate=-0.6)
         return
 
-    # Lean poses
+    # Lean poses (single pose change, then hold)
     pose = dict(PUPPY_POSE0)
     tag = None
     if _state == LFWD:
@@ -182,7 +193,6 @@ def _drive_cb(_event, pose_pub, vel_pub):
 
 
 def parse_and_dispatch(hex_data, pose_pub, vel_pub, gait_pub, run_ag_srv):
-    """Interpret 5-byte frame and dispatch action."""
     global _state, _last_pose_tag, run_st
 
     # 1) Action groups
@@ -198,7 +208,24 @@ def parse_and_dispatch(hex_data, pose_pub, vel_pub, gait_pub, run_ag_srv):
         rospy.loginfo("Motion -> %s", MOTION_MAP[hex_data])
         return
 
-    # 3) Continuous FSM-based voice modes (11–19)
+    # 3) Gait mode commands
+    if hex_data == FRAME_GAIT_TROT:
+        gait = {'overlap_time':0.2, 'swing_time':0.3, 'clearance_time':0.0, 'z_clearance':8}
+        gait_pub.publish(**gait)
+        rospy.loginfo("GAIT -> TROT")
+        return
+    elif hex_data == FRAME_GAIT_AMBLE:
+        gait = {'overlap_time':0.1, 'swing_time':0.2, 'clearance_time':0.1, 'z_clearance':5}
+        gait_pub.publish(**gait)
+        rospy.loginfo("GAIT -> AMBLE")
+        return
+    elif hex_data == FRAME_GAIT_WALK:
+        gait = {'overlap_time':0.1, 'swing_time':0.2, 'clearance_time':0.3, 'z_clearance':5}
+        gait_pub.publish(**gait)
+        rospy.loginfo("GAIT -> WALK")
+        return
+
+    # 4) Continuous FSM-based voice motions (11–19)
     if   hex_data == "AA 55 00 01 FB": _state = FWD
     elif hex_data == "AA 55 00 02 FB": _state = BACK
     elif hex_data == "AA 55 00 03 FB": _state = TL
@@ -222,13 +249,13 @@ def parse_and_dispatch(hex_data, pose_pub, vel_pub, gait_pub, run_ag_srv):
         rospy.signal_shutdown("QUIT command")
         return
 
-    # 4) Legacy/demo motions
+    # 5) Legacy/demo motions
     if hex_data == MARCH_CODE:
         stop_motion(vel_pub)
         pose = dict(PUPPY_POSE0)
         pose_pub.publish(**pose, run_time=500)
         rospy.sleep(0.2)
-        vel_pub.publish(x=0.1, y=0.0, yaw_rate=0.0)
+        vel_pub.publish(x=5.0, y=0.0, yaw_rate=0.0)
         rospy.sleep(2)
         vel_pub.publish(x=0.0, y=0.0, yaw_rate=0.0)
 
@@ -264,10 +291,9 @@ if __name__ == "__main__":
     ser = serial.Serial(dev, 115200, timeout=0.2)
     rospy.loginfo("Using USB: %s", dev)
 
-    # continuous FSM driver
     _drive_timer = rospy.Timer(
         rospy.Duration(0.02),
-        lambda evt: _drive_cb(evt, PuppyPosePub, PuppyVelocityPub),
+        lambda evt: _drive_cb(evt, PuppyPosePub, PuppyVelocityPub, PuppyGaitConfigPub),
         oneshot=False
     )
 
