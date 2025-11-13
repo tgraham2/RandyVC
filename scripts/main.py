@@ -6,7 +6,7 @@ import serial
 import threading
 from puppy_control.msg import Velocity, Pose, Gait
 from puppy_control.srv import SetRunActionName
-from std_msgs.msg import UInt8MultiArray # this is for the relax-all-servos 
+from std_msgs.msg import UInt8MultiArray  # relax-all-servos
 
 BANNER = """
 **********************************************************
@@ -16,15 +16,60 @@ Press Ctrl+C to exit.
 ----------------------------------------------------------
 """
 
-# --- Base pose and gait defaults ---
+# ============================================================
+# Frame Constants (from spreadsheet 251113-1003)
+# ============================================================
+
+# Wake / greeting / system control
+WAKE_FRAME          = "AA 55 00 02 FB"      # HELLO-HI-WONDER
+GREETING_FRAME      = "AA 55 00 00 FB"      # Welcome
+HAVE_A_REST_FRAME   = "AA 55 00 01 FB"
+
+# Relax / stop / quit
+RELAX_CODE          = "AA 55 00 0B FB"
+FRAME_STOP          = "AA 55 00 09 FB"
+FRAME_QUIT          = "AA 55 00 0A FB"
+
+# Continuous-motion control (new frames must be assigned in spreadsheet)
+FRAME_FWD           = "AA 55 00 01 FB"
+FRAME_TL            = "AA 55 00 03 FB"
+FRAME_TR            = "AA 55 00 04 FB"
+FRAME_LFWD          = "AA 55 00 05 FB"
+FRAME_LBACK         = "AA 55 00 06 FB"
+FRAME_LLEFT         = "AA 55 00 07 FB"
+FRAME_LRIGHT        = "AA 55 00 08 FB"
+
+# Gait frames
+FRAME_GAIT_TROT     = "AA 55 00 20 FB"
+FRAME_GAIT_AMBLE    = "AA 55 00 21 FB"
+FRAME_GAIT_WALK     = "AA 55 00 22 FB"
+
+# Legacy/demo frames
+LOOKUP_CODE         = "AA 55 00 8D FB"
+MARCH_CODE          = "AA 55 00 76 FB"
+LIEDOWN_CODE        = "AA 55 00 1F FB"
+
+# ============================================================
+# Pose & gait defaults
+# ============================================================
+
 PUPPY_POSE0 = {
     'roll': 0.0, 'pitch': 0.0, 'yaw': 0.0,
-    'height': -10, 'x_shift': -0.8,   # adjusted for arm mounted
+    'height': -10, 'x_shift': -0.8,
     'stance_x': 0, 'stance_y': 0
 }
-GAIT0 = {'overlap_time': 0.2, 'swing_time': 0.3, 'clearance_time': 0.0, 'z_clearance': 8}
 
-# --- Frame -> ActionGroup mapping ---
+GAIT0 = {
+    'overlap_time': 0.2,
+    'swing_time': 0.3,
+    'clearance_time': 0.0,
+    'z_clearance': 8
+}
+
+# ============================================================
+# ActionGroups (unchanged)
+# ============================================================
+
 FRAME_TO_ACTION = {
     "AA 55 00 80 FB": "1.d6a",
     "AA 55 00 81 FB": "2_legs_stand.d6ac",
@@ -58,24 +103,10 @@ FRAME_TO_ACTION = {
     "AA 55 00 B4 FB": "arm_test.d6a",
 }
 
-# --- Fixed codes ---
-STOP_CODE       = "AA 55 00 09 FB"
-ATTENTION_CODE  = "AA 55 00 0A FB"   # repurposed as QUIT
-RELAX_CODE    = "AA 55 00 0B FB"
-LOOKUP_CODE     = "AA 55 00 8D FB"
-MARCH_CODE      = "AA 55 00 76 FB"
-#
-LIEDOWN_CODE = "AA 55 00 1F FB"
+# ============================================================
+# FSM state identifiers
+# ============================================================
 
-# --- Motion map (F1–F4 timed) ---
-MOTION_MAP = {
-    "AA 55 00 F1 FB": {"x":  5.0, "y": 0.0, "yaw_rate": 0.0,  "duration": 2.0},  # forward
-    "AA 55 00 F2 FB": {"x": -5.0, "y": 0.0, "yaw_rate": 0.0,  "duration": 2.0},  # backward
-    "AA 55 00 F3 FB": {"x":  0.0, "y": 0.0, "yaw_rate": 0.6,  "duration": 1.5},  # turn left
-    "AA 55 00 F4 FB": {"x":  0.0, "y": 0.0, "yaw_rate":-0.6,  "duration": 1.5},  # turn right
-}
-
-# --- FSM states for latched motion commands ---
 IDLE, FWD, BACK, TL, TR, LFWD, LBACK, LLEFT, LRIGHT = range(9)
 _state = IDLE
 _last_pose_tag = None
@@ -83,13 +114,11 @@ _last_pose_tag = None
 run_st = True
 _motion_lock = threading.Lock()
 _motion_timer = None
-_drive_timer = None
+_drive_timer = None # this creates an offline clock process (invisible)
 
-# --- Gait selection frames ---
-FRAME_GAIT_TROT  = "AA 55 00 20 FB"
-FRAME_GAIT_AMBLE = "AA 55 00 21 FB"
-FRAME_GAIT_WALK  = "AA 55 00 22 FB"
-
+# ============================================================
+# Utility functions
+# ============================================================
 
 def on_shutdown():
     global run_st
@@ -128,48 +157,30 @@ def stop_motion(vel_pub):
 
 def _apply_pose(pose_pub, pose_dict, run_time_ms=300):
     pose_pub.publish(
-        stance_x=pose_dict['stance_x'], stance_y=pose_dict['stance_y'],
-        x_shift=pose_dict['x_shift'], height=pose_dict['height'],
-        roll=pose_dict['roll'], pitch=pose_dict['pitch'], yaw=pose_dict['yaw'],
+        stance_x=pose_dict['stance_x'],
+        stance_y=pose_dict['stance_y'],
+        x_shift=pose_dict['x_shift'],
+        height=pose_dict['height'],
+        roll=pose_dict['roll'],
+        pitch=pose_dict['pitch'],
+        yaw=pose_dict['yaw'],
         run_time=run_time_ms
     )
 
 
-def run_motion(pose_pub, gait_pub, vel_pub, m):
-    global _motion_timer
-    with _motion_lock:
-        if _motion_timer is not None:
-            _motion_timer.shutdown()
-            _motion_timer = None
-        pose = dict(PUPPY_POSE0)
-        pose_pub.publish(**pose, run_time=400)
-        gait_pub.publish(**GAIT0)
-        rospy.sleep(0.1)
-        vel_pub.publish(x=m["x"], y=m["y"], yaw_rate=m["yaw_rate"])
-
-        def _auto_stop(_event):
-            stop_motion(vel_pub)
-
-        _motion_timer = rospy.Timer(rospy.Duration.from_sec(m["duration"]), _auto_stop, oneshot=True)
-
-
 def _drive_cb(_event, pose_pub, vel_pub, gait_pub):
     global _state, _last_pose_tag
+
     if _state == IDLE:
         vel_pub.publish(x=0.0, y=0.0, yaw_rate=0.0)
         _last_pose_tag = None
         return
 
-    # Ensure gait/pose are active for continuous motion
     gait_pub.publish(**GAIT0)
     pose_pub.publish(**PUPPY_POSE0, run_time=300)
 
-    # Velocity-based states (cm/s)
     if _state == FWD:
         vel_pub.publish(x=5.0, y=0.0, yaw_rate=0.0)
-        return
-    if _state == BACK:
-        vel_pub.publish(x=-5.0, y=0.0, yaw_rate=0.0)
         return
     if _state == TL:
         vel_pub.publish(x=0.0, y=0.0, yaw_rate=0.6)
@@ -178,83 +189,107 @@ def _drive_cb(_event, pose_pub, vel_pub, gait_pub):
         vel_pub.publish(x=0.0, y=0.0, yaw_rate=-0.6)
         return
 
-    # Lean poses (single pose change, then hold)
     pose = dict(PUPPY_POSE0)
     tag = None
+
     if _state == LFWD:
         pose['pitch'] = math.radians(+15); tag = "LFWD"
     elif _state == LBACK:
         pose['pitch'] = math.radians(-15); tag = "LBACK"
     elif _state == LLEFT:
-        pose['roll']  = math.radians(+15); tag = "LLEFT"
+        pose['roll'] = math.radians(+15); tag = "LLEFT"
     elif _state == LRIGHT:
-        pose['roll']  = math.radians(-15); tag = "LRIGHT"
+        pose['roll'] = math.radians(-15); tag = "LRIGHT"
+
     if tag and _last_pose_tag != tag:
         _apply_pose(pose_pub, pose, run_time_ms=300)
         _last_pose_tag = tag
+
     vel_pub.publish(x=0.0, y=0.0, yaw_rate=0.0)
 
+
+# ============================================================
+# Main dispatcher
+# ============================================================
 
 def parse_and_dispatch(hex_data, pose_pub, vel_pub, gait_pub, run_ag_srv):
     global _state, _last_pose_tag, run_st
 
-    # 0) Relax all servos
+    # --------------------------------------------------------
+    # 0) WAKE WORD
+    # --------------------------------------------------------
+    if hex_data == WAKE_FRAME:
+        rospy.loginfo("Wake word detected; ignoring.")
+        return
+
+    # --------------------------------------------------------
+    # 1) Relax all servos
+    # --------------------------------------------------------
     if hex_data == RELAX_CODE:
         rospy.loginfo("Relaxing all servos...")
         try:
-            pub = rospy.Publisher('/ros_robot_controller/bus_servo/torque_enable', UInt8MultiArray, queue_size=1)
+            pub = rospy.Publisher(
+                '/ros_robot_controller/bus_servo/torque_enable',
+                UInt8MultiArray, queue_size=1
+            )
             msg = UInt8MultiArray(); msg.data = [0]
             pub.publish(msg)
         except Exception as e:
             rospy.logwarn("Failed to relax servos: %s", e)
         return
 
-    # 1) Action groups
+    # --------------------------------------------------------
+    # 2) ActionGroups
+    # --------------------------------------------------------
     if hex_data in FRAME_TO_ACTION:
         stop_motion(vel_pub)
         run_action_group(run_ag_srv, FRAME_TO_ACTION[hex_data])
         rospy.loginfo("ActionGroup -> %s", FRAME_TO_ACTION[hex_data])
         return
 
-    # 2) Timed motions (F1–F4)
-    if hex_data in MOTION_MAP:
-        run_motion(pose_pub, gait_pub, vel_pub, MOTION_MAP[hex_data])
-        rospy.loginfo("Motion -> %s", MOTION_MAP[hex_data])
-        return
-
-    # 3) Gait mode commands
+    # --------------------------------------------------------
+    # 3) Gait settings
+    # --------------------------------------------------------
     if hex_data == FRAME_GAIT_TROT:
-        gait = {'overlap_time':0.2, 'swing_time':0.3, 'clearance_time':0.0, 'z_clearance':8}
-        gait_pub.publish(**gait)
+        gait_pub.publish(overlap_time=0.2, swing_time=0.3,
+                         clearance_time=0.0, z_clearance=8)
         rospy.loginfo("GAIT -> TROT")
         return
     elif hex_data == FRAME_GAIT_AMBLE:
-        gait = {'overlap_time':0.1, 'swing_time':0.2, 'clearance_time':0.1, 'z_clearance':5}
-        gait_pub.publish(**gait)
+        gait_pub.publish(overlap_time=0.1, swing_time=0.2,
+                         clearance_time=0.1, z_clearance=5)
         rospy.loginfo("GAIT -> AMBLE")
         return
     elif hex_data == FRAME_GAIT_WALK:
-        gait = {'overlap_time':0.1, 'swing_time':0.2, 'clearance_time':0.3, 'z_clearance':5}
-        gait_pub.publish(**gait)
+        gait_pub.publish(overlap_time=0.1, swing_time=0.2,
+                         clearance_time=0.3, z_clearance=5)
         rospy.loginfo("GAIT -> WALK")
         return
 
-    # 4) Continuous FSM-based voice motions (11–19)
-    if   hex_data == "AA 55 00 01 FB": _state = FWD
-    elif hex_data == "AA 55 00 02 FB": _state = BACK
-    elif hex_data == "AA 55 00 03 FB": _state = TL
-    elif hex_data == "AA 55 00 04 FB": _state = TR
-    elif hex_data == "AA 55 00 05 FB": _state = LFWD; _last_pose_tag = None
-    elif hex_data == "AA 55 00 06 FB": _state = LBACK; _last_pose_tag = None
-    elif hex_data == "AA 55 00 07 FB": _state = LLEFT; _last_pose_tag = None
-    elif hex_data == "AA 55 00 08 FB": _state = LRIGHT; _last_pose_tag = None
-    elif hex_data == "AA 55 00 09 FB":
+    # --------------------------------------------------------
+    # 4) FSM continuous motion
+    # --------------------------------------------------------
+    if hex_data == FRAME_FWD:
+        _state = FWD
+    elif hex_data == FRAME_TL:
+        _state = TL
+    elif hex_data == FRAME_TR:
+        _state = TR
+    elif hex_data == FRAME_LFWD:
+        _state = LFWD; _last_pose_tag = None
+    elif hex_data == FRAME_LBACK:
+        _state = LBACK; _last_pose_tag = None
+    elif hex_data == FRAME_LLEFT:
+        _state = LLEFT; _last_pose_tag = None
+    elif hex_data == FRAME_LRIGHT:
+        _state = LRIGHT; _last_pose_tag = None
+    elif hex_data == FRAME_STOP:
         _state = IDLE
         stop_motion(vel_pub)
         _apply_pose(pose_pub, dict(PUPPY_POSE0), run_time_ms=300)
         rospy.loginfo("STOP -> IDLE")
         return
-    elif hex_data == "AA 55 00 0A FB":
+    elif hex_data == FRAME_QUIT:
         _state = IDLE
         stop_motion(vel_pub)
         _apply_pose(pose_pub, dict(PUPPY_POSE0), run_time_ms=300)
@@ -263,7 +298,9 @@ def parse_and_dispatch(hex_data, pose_pub, vel_pub, gait_pub, run_ag_srv):
         rospy.signal_shutdown("QUIT command")
         return
 
-    # 5) Legacy/demo motions
+    # --------------------------------------------------------
+    # 5) Legacy motions
+    # --------------------------------------------------------
     if hex_data == MARCH_CODE:
         stop_motion(vel_pub)
         pose = dict(PUPPY_POSE0)
@@ -283,6 +320,10 @@ def parse_and_dispatch(hex_data, pose_pub, vel_pub, gait_pub, run_ag_srv):
         pose = dict(PUPPY_POSE0); pose['pitch'] = math.radians(20)
         pose_pub.publish(**pose, run_time=500)
 
+
+# ============================================================
+# MAIN
+# ============================================================
 
 if __name__ == "__main__":
     print(BANNER)
