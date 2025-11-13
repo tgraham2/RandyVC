@@ -6,6 +6,7 @@ import serial
 import threading
 from puppy_control.msg import Velocity, Pose, Gait
 from puppy_control.srv import SetRunActionName
+from std_msgs.msg import UInt8MultiArray # this is for the relax-all-servos 
 
 BANNER = """
 **********************************************************
@@ -60,9 +61,11 @@ FRAME_TO_ACTION = {
 # --- Fixed codes ---
 STOP_CODE       = "AA 55 00 09 FB"
 ATTENTION_CODE  = "AA 55 00 0A FB"   # repurposed as QUIT
-LIEDOWN_CODE    = "AA 55 00 0B FB"
+RELAX_CODE    = "AA 55 00 0B FB"
 LOOKUP_CODE     = "AA 55 00 8D FB"
 MARCH_CODE      = "AA 55 00 76 FB"
+#
+LIEDOWN_CODE = "AA 55 00 1F FB"
 
 # --- Motion map (F1–F4 timed) ---
 MOTION_MAP = {
@@ -194,6 +197,17 @@ def _drive_cb(_event, pose_pub, vel_pub, gait_pub):
 
 def parse_and_dispatch(hex_data, pose_pub, vel_pub, gait_pub, run_ag_srv):
     global _state, _last_pose_tag, run_st
+
+    # 0) Relax all servos
+    if hex_data == RELAX_CODE:
+        rospy.loginfo("Relaxing all servos...")
+        try:
+            pub = rospy.Publisher('/ros_robot_controller/bus_servo/torque_enable', UInt8MultiArray, queue_size=1)
+            msg = UInt8MultiArray(); msg.data = [0]
+            pub.publish(msg)
+        except Exception as e:
+            rospy.logwarn("Failed to relax servos: %s", e)
+        return
 
     # 1) Action groups
     if hex_data in FRAME_TO_ACTION:
