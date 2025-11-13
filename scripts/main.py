@@ -342,7 +342,7 @@ if __name__ == "__main__":
     rospy.wait_for_service('/puppy_control/runActionGroup', timeout=5)
     RunAG = rospy.ServiceProxy('/puppy_control/runActionGroup', SetRunActionName)
 
-    dev = "/dev/ttyUSB0"
+    dev = "/dev/ttyUSB0" # USB0 for WonderEcho v3
     ser = serial.Serial(dev, 115200, timeout=0.2)
     rospy.loginfo("Using USB: %s", dev)
 
