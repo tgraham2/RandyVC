@@ -4,6 +4,8 @@ import rospy
 import math
 import serial
 import threading
+from serial.serialutil import SerialException
+from serial.tools import list_ports
 from puppy_control.msg import Velocity, Pose, Gait
 from puppy_control.srv import SetRunActionName
 from std_msgs.msg import UInt8MultiArray  # relax-all-servos
@@ -30,7 +32,7 @@ RELAX_CODE          = "AA 55 00 0B FB"
 FRAME_STOP          = "AA 55 00 09 FB"
 FRAME_QUIT          = "AA 55 00 0A FB"
 
-# Continuous-motion control (new frames must be assigned in spreadsheet)
+# Continuous-motion control (frames must match spreadsheet)
 FRAME_FWD           = "AA 55 00 01 FB"
 FRAME_TL            = "AA 55 00 03 FB"
 FRAME_TR            = "AA 55 00 04 FB"
@@ -67,7 +69,7 @@ GAIT0 = {
 }
 
 # ============================================================
-# ActionGroups (unchanged)
+# ActionGroups
 # ============================================================
 
 FRAME_TO_ACTION = {
@@ -114,15 +116,21 @@ _last_pose_tag = None
 run_st = True
 _motion_lock = threading.Lock()
 _motion_timer = None
-_drive_timer = None # this creates an offline clock process (invisible)
+_drive_timer = None
 
 # ============================================================
-# Utility functions
+# Utility
 # ============================================================
 
 def on_shutdown():
-    global run_st
+    global run_st, _drive_timer
     run_st = False
+    if _drive_timer is not None:
+        try:
+            _drive_timer.shutdown()
+        except Exception:
+            pass
+        _drive_timer = None
     rospy.loginfo("Shutting down...")
 
 
@@ -131,7 +139,13 @@ def hex5(b):
 
 
 def read_fixed_frame(ser):
+    """
+    Read exactly one 5-byte frame from serial.
+    Returns hex string like 'AA 55 00 02 FB' or None.
+    """
     pkt = ser.read(5)
+    if len(pkt) == 0:
+        return None
     if len(pkt) != 5:
         return None
     if pkt[0] != 0xAA or pkt[1] != 0x55 or pkt[-1] != 0xFB:
@@ -208,23 +222,15 @@ def _drive_cb(_event, pose_pub, vel_pub, gait_pub):
     vel_pub.publish(x=0.0, y=0.0, yaw_rate=0.0)
 
 
-# ============================================================
-# Main dispatcher
-# ============================================================
-
 def parse_and_dispatch(hex_data, pose_pub, vel_pub, gait_pub, run_ag_srv):
     global _state, _last_pose_tag, run_st
 
-    # --------------------------------------------------------
     # 0) WAKE WORD
-    # --------------------------------------------------------
     if hex_data == WAKE_FRAME:
         rospy.loginfo("Wake word detected; ignoring.")
         return
 
-    # --------------------------------------------------------
     # 1) Relax all servos
-    # --------------------------------------------------------
     if hex_data == RELAX_CODE:
         rospy.loginfo("Relaxing all servos...")
         try:
@@ -232,24 +238,21 @@ def parse_and_dispatch(hex_data, pose_pub, vel_pub, gait_pub, run_ag_srv):
                 '/ros_robot_controller/bus_servo/torque_enable',
                 UInt8MultiArray, queue_size=1
             )
-            msg = UInt8MultiArray(); msg.data = [0]
+            msg = UInt8MultiArray()
+            msg.data = [0]
             pub.publish(msg)
         except Exception as e:
             rospy.logwarn("Failed to relax servos: %s", e)
         return
 
-    # --------------------------------------------------------
     # 2) ActionGroups
-    # --------------------------------------------------------
     if hex_data in FRAME_TO_ACTION:
         stop_motion(vel_pub)
         run_action_group(run_ag_srv, FRAME_TO_ACTION[hex_data])
         rospy.loginfo("ActionGroup -> %s", FRAME_TO_ACTION[hex_data])
         return
 
-    # --------------------------------------------------------
     # 3) Gait settings
-    # --------------------------------------------------------
     if hex_data == FRAME_GAIT_TROT:
         gait_pub.publish(overlap_time=0.2, swing_time=0.3,
                          clearance_time=0.0, z_clearance=8)
@@ -266,9 +269,7 @@ def parse_and_dispatch(hex_data, pose_pub, vel_pub, gait_pub, run_ag_srv):
         rospy.loginfo("GAIT -> WALK")
         return
 
-    # --------------------------------------------------------
     # 4) FSM continuous motion
-    # --------------------------------------------------------
     if hex_data == FRAME_FWD:
         _state = FWD
     elif hex_data == FRAME_TL:
@@ -298,9 +299,7 @@ def parse_and_dispatch(hex_data, pose_pub, vel_pub, gait_pub, run_ag_srv):
         rospy.signal_shutdown("QUIT command")
         return
 
-    # --------------------------------------------------------
     # 5) Legacy motions
-    # --------------------------------------------------------
     if hex_data == MARCH_CODE:
         stop_motion(vel_pub)
         pose = dict(PUPPY_POSE0)
@@ -319,6 +318,50 @@ def parse_and_dispatch(hex_data, pose_pub, vel_pub, gait_pub, run_ag_srv):
         stop_motion(vel_pub)
         pose = dict(PUPPY_POSE0); pose['pitch'] = math.radians(20)
         pose_pub.publish(**pose, run_time=500)
+
+
+# ============================================================
+# Serial port auto-detect (CH340-aware)
+# ============================================================
+
+def detect_voice_port():
+    """
+    Prefer a CH340 USB-serial device if present; otherwise fall back.
+    """
+    ports = list(list_ports.comports())
+    if not ports:
+        raise RuntimeError("No serial ports found")
+
+    # Known CH340 VID/PID pairs
+    ch340_vid_pid = {(0x1A86, 0x7523), (0x1A86, 0x5523)}
+
+    ch340_ports = []
+    usb_ports = []
+
+    for p in ports:
+        vid, pid = p.vid, p.pid
+        desc = p.description or ""
+        dev = p.device
+
+        if (vid, pid) in ch340_vid_pid or "CH340" in desc:
+            ch340_ports.append(p)
+
+        if "ttyUSB" in dev:
+            usb_ports.append(p)
+
+    if ch340_ports:
+        dev = ch340_ports[0].device
+        rospy.loginfo("Detected CH340 on %s (%s)", dev, ch340_ports[0].description)
+        return dev
+
+    if usb_ports:
+        dev = usb_ports[0].device
+        rospy.logwarn("No CH340 found; using %s (%s)", dev, usb_ports[0].description)
+        return dev
+
+    # Fallback
+    rospy.logwarn("No ttyUSB* detected, falling back to /dev/ttyUSB0")
+    return "/dev/ttyUSB0"
 
 
 # ============================================================
@@ -342,20 +385,38 @@ if __name__ == "__main__":
     rospy.wait_for_service('/puppy_control/runActionGroup', timeout=5)
     RunAG = rospy.ServiceProxy('/puppy_control/runActionGroup', SetRunActionName)
 
-    dev = "/dev/ttyUSB0" # USB0 for WonderEcho v3
-    ser = serial.Serial(dev, 115200, timeout=0.2)
-    rospy.loginfo("Using USB: %s", dev)
+    ser = None
+    dev = None
+    try:
+        dev = detect_voice_port()
+        ser = serial.Serial(dev, 115200, timeout=0.2)
+        rospy.loginfo("Using USB: %s", dev)
 
-    _drive_timer = rospy.Timer(
-        rospy.Duration(0.02),
-        lambda evt: _drive_cb(evt, PuppyPosePub, PuppyVelocityPub, PuppyGaitConfigPub),
-        oneshot=False
-    )
+        _drive_timer = rospy.Timer(
+            rospy.Duration(0.02),
+            lambda evt: _drive_cb(evt, PuppyPosePub, PuppyVelocityPub, PuppyGaitConfigPub),
+            oneshot=False
+        )
 
-    while run_st and not rospy.is_shutdown():
-        code = read_fixed_frame(ser)
-        if code:
-            rospy.loginfo("RX %s", code)
-            parse_and_dispatch(code, PuppyPosePub, PuppyVelocityPub, PuppyGaitConfigPub, RunAG)
-        else:
-            rospy.sleep(0.02)
+        while run_st and not rospy.is_shutdown():
+            try:
+                code = read_fixed_frame(ser)
+            except SerialException as e:
+                rospy.logerr("Serial error on %s: %s", dev, e)
+                run_st = False
+                rospy.signal_shutdown("Serial error on voice port")
+                break
+
+            if code:
+                rospy.loginfo("RX %s", code)
+                parse_and_dispatch(code, PuppyPosePub, PuppyVelocityPub, PuppyGaitConfigPub, RunAG)
+            else:
+                rospy.sleep(0.02)
+
+    finally:
+        if ser is not None and ser.is_open:
+            try:
+                ser.close()
+                rospy.loginfo("Closed serial port %s", dev)
+            except Exception as e:
+                rospy.logwarn("Failed to close serial port %s: %s", dev, e)
